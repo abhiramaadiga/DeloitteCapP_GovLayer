@@ -1,6 +1,7 @@
 # Python cache
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 
 # Virtual environments
@@ -51,3 +52,7 @@ Thumbs.db
 
 # Python version managers
 .python-version
+
+#Node Modules
+node_modules/
+"@
