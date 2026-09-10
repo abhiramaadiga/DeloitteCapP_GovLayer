@@ -61,3 +61,82 @@ def trigger_quarantine(req: QuarantineRequest):
 def lift_quarantine_endpoint(req: QuarantineRequest):
     """Lift quarantine with mandatory justification."""
     return KillSwitch.lift_quarantine(req.agent_id, req.reason, analyst_id="SOC-ANALYST-PES")
+
+
+# Add this inside backend/main.py
+
+class ChatPromptRequest(BaseModel):
+    user_prompt: str
+    account_id: str = "401"
+
+@app.post("/api/v1/chat/message")
+async def chat_agent_endpoint(req: ChatPromptRequest):
+    """
+    Intelligent Banking Chatbot Bridge:
+    1. Interprets natural language prompt
+    2. Dispatches tool call through the Governor PEP Gateway
+    3. Returns both chatbot response and Governor security telemetry
+    """
+    prompt_lower = req.user_prompt.lower()
+    
+    # Mint or retrieve Support Bot Passport Token
+    token = NHITokenManager.mint_agent_token("Agent-Support-01", "tier1_customer_service")
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # 1. Intent: Balance Query
+    if "balance" in prompt_lower or "how much" in prompt_lower:
+        result = await pep_reverse_proxy(f"accounts/{req.account_id}/balance", Request(scope={"type": "http", "method": "GET", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+        balance = result["upstream_data"]["balance_inr"]
+        return {
+            "reply": f"Hello Rahul! Your current savings account balance is ₹{balance:,.2f}.",
+            "action_taken": "GET /accounts/401/balance",
+            "governor_status": "ALLOWED",
+            "pep_latency_ms": result["pep_latency_ms"]
+        }
+        
+    # 2. Intent: Fixed Deposit Query
+    elif "deposit" in prompt_lower or "fd" in prompt_lower or "investment" in prompt_lower:
+        result = await pep_reverse_proxy(f"accounts/{req.account_id}/deposits", Request(scope={"type": "http", "method": "GET", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+        total_fd = result["upstream_data"]["total_deposits_inr"]
+        return {
+            "reply": f"You currently have 1 active Fixed Deposit of ₹{total_fd:,.2f} earning 7.25% interest maturing in March 2027.",
+            "action_taken": "GET /accounts/401/deposits",
+            "governor_status": "ALLOWED",
+            "pep_latency_ms": result["pep_latency_ms"]
+        }
+        
+    # 3. Intent: Transfer Wire (Attack Scenario 1)
+    elif "transfer" in prompt_lower or "wire" in prompt_lower or "send money" in prompt_lower:
+        try:
+            # Bot attempts to call the wire payout tool via PEP
+            await pep_reverse_proxy("transfers/wire", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+        except HTTPException as e:
+            return {
+                "reply": "⚠️ Security Alert: I attempted to process this wire transfer, but the Bank Identity & Access Governor blocked the execution.",
+                "action_taken": "POST /transfers/wire",
+                "governor_status": "BLOCKED",
+                "error_code": 403,
+                "violation_reason": e.detail
+            }
+            
+    # 4. Intent: Liquidate FD (Attack Scenario 2)
+    elif "liquidate" in prompt_lower or "break fd" in prompt_lower:
+        try:
+            # Bot attempts to liquidate the investment asset
+            await pep_reverse_proxy(f"accounts/{req.account_id}/deposits/liquidate", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+        except HTTPException as e:
+            return {
+                "reply": "⚠️ Security Alert: I cannot break or liquidate your Fixed Deposit. High-value asset liquidation is blocked for customer support bots.",
+                "action_taken": "POST /deposits/liquidate",
+                "governor_status": "BLOCKED",
+                "error_code": 403,
+                "violation_reason": e.detail
+            }
+            
+    # Default Fallback
+    return {
+        "reply": "I am Apex Bank's Virtual Assistant. I can help you check your account balance, view your Fixed Deposits, or answer branch questions.",
+        "action_taken": "GET /faq",
+        "governor_status": "ALLOWED",
+        "pep_latency_ms": 0.8
+    }
