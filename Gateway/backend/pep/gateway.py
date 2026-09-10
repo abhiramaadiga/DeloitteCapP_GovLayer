@@ -53,11 +53,18 @@ async def pep_reverse_proxy(path: str, request: Request):
     normalized_path = "/" + path.strip("/")
     method = request.method
     
+    #Updated: blocked from premature Fixed Deposit liquidation
+
     if agent_role == "tier1_customer_service":
         if normalized_path.startswith("/transfers/"):
             raise HTTPException(
                 status_code=403,
                 detail="POLICY VIOLATION [SOX-404]: Support agents are prohibited from initiating financial transfers."
+            )
+        if "/deposits/liquidate" in normalized_path:
+            raise HTTPException(
+                status_code=403,
+                detail="POLICY VIOLATION [BANKING-GOV]: Support agents are prohibited from liquidating investment assets."
             )
         if normalized_path == "/customers/export":
             raise HTTPException(
