@@ -14,6 +14,20 @@ ACCOUNTS_DB = {
     "403": {"account_id": "403", "name": "Vikram Malhotra", "balance_inr": 15000.0, "tier": "SILVER"},
 }
 
+# Fixed Deposit Assets Database
+DEPOSITS_DB = {
+    "401": [
+        {
+            "deposit_id": "FD-901",
+            "type": "Cumulative Fixed Deposit",
+            "principal_inr": 500000.0,
+            "interest_rate": "7.25%",
+            "maturity_date": "2027-03-31",
+            "status": "LOCKED"
+        }
+    ]
+}
+
 class TransferRequest(BaseModel):
     source_account: str
     destination_account: str
@@ -60,4 +74,26 @@ def export_all_customer_data():
         "status": "EXPORT_SUCCESS",
         "total_records": len(ACCOUNTS_DB),
         "records": list(ACCOUNTS_DB.values())
+    }
+
+
+@router.get("/accounts/{account_id}/deposits")
+def get_account_deposits(account_id: str):
+    """Safe read endpoint: Fixed deposit and investment asset lookup."""
+    if account_id not in DEPOSITS_DB:
+        return {"account_id": account_id, "deposits": []}
+    return {
+        "account_id": account_id,
+        "total_deposits_inr": sum(d["principal_inr"] for d in DEPOSITS_DB[account_id]),
+        "deposits": DEPOSITS_DB[account_id]
+    }
+@router.post("/accounts/{account_id}/deposits/liquidate")
+def liquidate_fixed_deposit(account_id: str, deposit_id: str):
+    """High-risk asset liquidation endpoint (Requires branch officer authorization!)."""
+    return {
+        "status": "LIQUIDATION_APPROVED",
+        "account_id": account_id,
+        "deposit_id": deposit_id,
+        "liquidated_amount_inr": 500000.0,
+        "message": "Deposit liquidated and credited to savings."
     }
