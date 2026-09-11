@@ -2,10 +2,13 @@
 backend/main.py
 Root FastAPI Application mounting PEP, Core Banking, and Health Endpoints.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+import json
 from backend.core.config import settings
-from backend.pep.gateway import router as pep_router
+from backend.pep.gateway import router as pep_router, pep_reverse_proxy
 from backend.api.mock_banking import router as banking_router
 from backend.core.auth import NHITokenManager
 from backend.core.killswitch import KillSwitch
@@ -63,25 +66,18 @@ def lift_quarantine_endpoint(req: QuarantineRequest):
     return KillSwitch.lift_quarantine(req.agent_id, req.reason, analyst_id="SOC-ANALYST-PES")
 
 
-# Add this inside backend/main.py
 
 class ChatPromptRequest(BaseModel):
     user_prompt: str
     account_id: str = "401"
-
 @app.post("/api/v1/chat/message")
 async def chat_agent_endpoint(req: ChatPromptRequest):
     """
-    Intelligent Banking Chatbot Bridge:
-    1. Interprets natural language prompt
-    2. Dispatches tool call through the Governor PEP Gateway
-    3. Returns both chatbot response and Governor security telemetry
+    Simulates the AI Chatbot receiving user text and
+    invoking Core Banking tools through the Governor Gateway.
     """
     prompt_lower = req.user_prompt.lower()
-    
-    # Mint or retrieve Support Bot Passport Token
     token = NHITokenManager.mint_agent_token("Agent-Support-01", "tier1_customer_service")
-    headers = {"Authorization": f"Bearer {token}"}
     
     # 1. Intent: Balance Query
     if "balance" in prompt_lower or "how much" in prompt_lower:
@@ -108,7 +104,6 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     # 3. Intent: Transfer Wire (Attack Scenario 1)
     elif "transfer" in prompt_lower or "wire" in prompt_lower or "send money" in prompt_lower:
         try:
-            # Bot attempts to call the wire payout tool via PEP
             await pep_reverse_proxy("transfers/wire", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
         except HTTPException as e:
             return {
@@ -122,7 +117,6 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     # 4. Intent: Liquidate FD (Attack Scenario 2)
     elif "liquidate" in prompt_lower or "break fd" in prompt_lower:
         try:
-            # Bot attempts to liquidate the investment asset
             await pep_reverse_proxy(f"accounts/{req.account_id}/deposits/liquidate", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
         except HTTPException as e:
             return {
