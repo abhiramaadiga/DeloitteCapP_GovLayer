@@ -3,21 +3,35 @@ backend/main.py
 Root FastAPI Application mounting PEP, Core Banking, and Health Endpoints.
 """
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import json
 from backend.core.config import settings
+from backend.ml.risk_engine import _load_model
 from backend.pep.gateway import router as pep_router, pep_reverse_proxy
 from backend.api.mock_banking import router as banking_router
 from backend.core.auth import NHITokenManager
 from backend.core.killswitch import KillSwitch
 from pydantic import BaseModel
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs on startup:
+    try:
+        _load_model()
+        print("[ML Engine] Isolation Forest model pre-warmed successfully in memory.")
+    except Exception as e:
+        print(f"[ML Engine] Pre-warm failed: {e}")
+    yield
+    # Runs on shutdown (optional cleanup)
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Zero-Trust Identity & Access Governor for Autonomous AI Agents in BFSI Banking."
+    description="Zero-Trust Identity & Access Governor for Autonomous AI Agents in BFSI Banking.",
+    lifespan=lifespan
 )
 
 app.add_middleware(
