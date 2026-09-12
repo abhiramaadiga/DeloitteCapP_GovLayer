@@ -1,0 +1,7 @@
+{
+  "customer_service_agent": 0,
+  "priority_service_agent": 5000,
+  "corporate_payment_agent": 10000,
+  "banking_officer_agent": 50000,
+  "senior_banking_officer_agent": 250000
+}

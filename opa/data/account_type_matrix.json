@@ -1,0 +1,6 @@
+{
+  "customer_service_agent": ["checking_account", "savings_account"],
+  "priority_service_agent": ["checking_account", "savings_account", "premium_account"],
+  "corporate_payment_agent": ["corporate_account"],
+  "banking_officer_agent": ["checking_account", "savings_account", "corporate_account"]
+}
