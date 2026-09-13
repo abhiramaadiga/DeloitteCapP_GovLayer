@@ -1,6 +1,0 @@
-{
-  "customer_service_agent": ["view_balance", "view_faq"],
-  "priority_service_agent": ["view_balance", "view_faq", "transfer_ach"],
-  "corporate_payment_agent": ["view_balance", "transfer_ach"],
-  "banking_officer_agent": ["view_balance", "transfer_ach", "transfer_wire"]
-}
