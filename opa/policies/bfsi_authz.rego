@@ -3,7 +3,7 @@ package bfsi.authz
 import future.keywords.in
 
 default allow := false
-default deny_reasons := set()
+
 
 # =========================================================================
 # 1. ROOT EVALUATION RULE
