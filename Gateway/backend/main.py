@@ -14,18 +14,32 @@ from backend.pep.gateway import router as pep_router, pep_reverse_proxy
 from backend.api.mock_banking import router as banking_router
 from backend.core.auth import NHITokenManager
 from backend.core.killswitch import KillSwitch
-from pydantic import BaseModel
+from backend.core.database import init_db, get_recent_audit_logs, save_conversation, get_db_status
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Runs on startup:
     try:
+        init_db()
         _load_model()
         print("[ML Engine] Isolation Forest model pre-warmed successfully in memory.")
     except Exception as e:
-        print(f"[ML Engine] Pre-warm failed: {e}")
+        print(f"[Startup Warning] Pre-warm or DB init failed: {e}")
+    try:
+        from backend.ml.kafka_consumer import start_telemetry_consumer
+        start_telemetry_consumer()
+        print("[Kafka Consumer] Governance telemetry consumer started successfully.")
+    except Exception as ce:
+        print(f"[Startup Warning] Kafka consumer startup failed: {ce}")
     yield
-    # Runs on shutdown (optional cleanup)
+    # Runs on shutdown (cleanup)
+    try:
+        from backend.ml.kafka_consumer import stop_telemetry_consumer
+        stop_telemetry_consumer()
+    except Exception:
+        pass
+
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -45,10 +59,46 @@ app.add_middleware(
 # Mount Routers
 app.include_router(pep_router)
 app.include_router(banking_router)
+@app.get("/api/v1/audit/logs")
+def fetch_audit_logs(limit: int = 50, agent_id: str = None, decision: str = None):
+    """Admin endpoint to fetch auditable query logs with XAI reasons for the dashboard."""
+    return {"logs": get_recent_audit_logs(limit=limit, agent_id=agent_id, decision=decision)}
 
 @app.get("/healthz")
 def health_check():
-    return {"status": "HEALTHY", "domain": settings.DOMAIN}
+    db_status = get_db_status()
+    overall = "HEALTHY" if db_status.get("healthy") else "DEGRADED"
+    return {
+        "status": overall,
+        "domain": settings.DOMAIN,
+        "database": db_status
+    }
+
+@app.get("/api/v1/health/db")
+def db_health_check():
+    """Diagnostic endpoint to inspect PostgreSQL vs SQLite status."""
+    return get_db_status()
+
+@app.get("/api/v1/telemetry/metrics")
+def telemetry_metrics_endpoint():
+    """Real-time telemetry ingestion, anomaly rates, and security incident alerts."""
+    from backend.ml.kafka_consumer import get_consumer_metrics
+    return get_consumer_metrics()
+
+@app.get("/api/v1/ml/drift-status")
+def ml_drift_status_endpoint():
+    """Continuous ML feature & concept drift analysis report and recommendations."""
+    from backend.ml.kafka_consumer import get_drift_report
+    return get_drift_report()
+
+@app.post("/api/v1/ml/retrain")
+def ml_retrain_endpoint(max_samples: int = None):
+    """
+    Triggers continuous model retraining using buffered RLHF / borderline feedback samples.
+    Reloads the newly calibrated Isolation Forest model into the active Risk Engine.
+    """
+    from backend.ml.kafka_consumer import governance_consumer
+    return governance_consumer.trigger_retraining(max_samples=max_samples)
 
 class MintTokenRequest(BaseModel):
     agent_id: str
@@ -97,8 +147,10 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     if "balance" in prompt_lower or "how much" in prompt_lower:
         result = await pep_reverse_proxy(f"accounts/{req.account_id}/balance", Request(scope={"type": "http", "method": "GET", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
         balance = result["upstream_data"]["balance_inr"]
+        reply_msg = f"Hello Rahul! Your current savings account balance is ₹{balance:,.2f}."
+        save_conversation(req.account_id, req.user_prompt, reply_msg, "GET /accounts/401/balance", "ALLOWED")
         return {
-            "reply": f"Hello Rahul! Your current savings account balance is ₹{balance:,.2f}.",
+            "reply": reply_msg,
             "action_taken": "GET /accounts/401/balance",
             "governor_status": "ALLOWED",
             "pep_latency_ms": result["pep_latency_ms"]
@@ -108,8 +160,10 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     elif "deposit" in prompt_lower or "fd" in prompt_lower or "investment" in prompt_lower:
         result = await pep_reverse_proxy(f"accounts/{req.account_id}/deposits", Request(scope={"type": "http", "method": "GET", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
         total_fd = result["upstream_data"]["total_deposits_inr"]
+        reply_msg = f"You currently have 1 active Fixed Deposit of ₹{total_fd:,.2f} earning 7.25% interest maturing in March 2027."
+        save_conversation(req.account_id, req.user_prompt, reply_msg, "GET /accounts/401/deposits", "ALLOWED")
         return {
-            "reply": f"You currently have 1 active Fixed Deposit of ₹{total_fd:,.2f} earning 7.25% interest maturing in March 2027.",
+            "reply": reply_msg,
             "action_taken": "GET /accounts/401/deposits",
             "governor_status": "ALLOWED",
             "pep_latency_ms": result["pep_latency_ms"]
@@ -118,10 +172,20 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     # 3. Intent: Transfer Wire (Attack Scenario 1)
     elif "transfer" in prompt_lower or "wire" in prompt_lower or "send money" in prompt_lower:
         try:
-            await pep_reverse_proxy("transfers/wire", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
-        except HTTPException as e:
+            res = await pep_reverse_proxy("transfers/wire", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+            reply_msg = "Wire transfer processed successfully."
+            save_conversation(req.account_id, req.user_prompt, reply_msg, "POST /transfers/wire", "ALLOWED")
             return {
-                "reply": "⚠️ Security Alert: I attempted to process this wire transfer, but the Bank Identity & Access Governor blocked the execution.",
+                "reply": reply_msg,
+                "action_taken": "POST /transfers/wire",
+                "governor_status": "ALLOWED",
+                "pep_latency_ms": res.get("pep_latency_ms", 1.0)
+            }
+        except HTTPException as e:
+            reply_msg = "⚠️ Security Alert: I attempted to process this wire transfer, but the Bank Identity & Access Governor blocked the execution."
+            save_conversation(req.account_id, req.user_prompt, reply_msg, "POST /transfers/wire", "BLOCKED")
+            return {
+                "reply": reply_msg,
                 "action_taken": "POST /transfers/wire",
                 "governor_status": "BLOCKED",
                 "error_code": 403,
@@ -131,10 +195,20 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
     # 4. Intent: Liquidate FD (Attack Scenario 2)
     elif "liquidate" in prompt_lower or "break fd" in prompt_lower:
         try:
-            await pep_reverse_proxy(f"accounts/{req.account_id}/deposits/liquidate", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
-        except HTTPException as e:
+            res = await pep_reverse_proxy(f"accounts/{req.account_id}/deposits/liquidate", Request(scope={"type": "http", "method": "POST", "headers": [(b"authorization", f"Bearer {token}".encode())]}))
+            reply_msg = "Fixed deposit liquidated successfully."
+            save_conversation(req.account_id, req.user_prompt, reply_msg, "POST /deposits/liquidate", "ALLOWED")
             return {
-                "reply": "⚠️ Security Alert: I cannot break or liquidate your Fixed Deposit. High-value asset liquidation is blocked for customer support bots.",
+                "reply": reply_msg,
+                "action_taken": "POST /deposits/liquidate",
+                "governor_status": "ALLOWED",
+                "pep_latency_ms": res.get("pep_latency_ms", 1.0)
+            }
+        except HTTPException as e:
+            reply_msg = "⚠️ Security Alert: I cannot break or liquidate your Fixed Deposit. High-value asset liquidation is blocked for customer support bots."
+            save_conversation(req.account_id, req.user_prompt, reply_msg, "POST /deposits/liquidate", "BLOCKED")
+            return {
+                "reply": reply_msg,
                 "action_taken": "POST /deposits/liquidate",
                 "governor_status": "BLOCKED",
                 "error_code": 403,
@@ -142,8 +216,16 @@ async def chat_agent_endpoint(req: ChatPromptRequest):
             }
             
     # Default Fallback
+    reply_msg = "I am Apex Bank's Virtual Assistant. I can help you check your account balance, view your Fixed Deposits, or answer branch questions."
+    save_conversation(
+        account_id=req.account_id,
+        prompt=req.user_prompt,
+        response=reply_msg,
+        action="GET /faq",
+        status="ALLOWED"
+    )
     return {
-        "reply": "I am Apex Bank's Virtual Assistant. I can help you check your account balance, view your Fixed Deposits, or answer branch questions.",
+        "reply": reply_msg,
         "action_taken": "GET /faq",
         "governor_status": "ALLOWED",
         "pep_latency_ms": 0.8

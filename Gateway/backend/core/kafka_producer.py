@@ -17,13 +17,10 @@ import socket
 import threading
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from backend.core.config import settings
 
 logger = logging.getLogger("agentic_iam.kafka_producer")
-
-KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-KAFKA_TOPIC_TELEMETRY = "agent.governance.events"
-KAFKA_TOPIC_ALERTS = "agent.alerts.v1"
 
 
 class GovernanceTelemetryProducer:
@@ -43,18 +40,19 @@ class GovernanceTelemetryProducer:
 
     def __init__(
         self,
-        bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS,
-        telemetry_topic: str = KAFKA_TOPIC_TELEMETRY,
-        alerts_topic: str = KAFKA_TOPIC_ALERTS,
+        bootstrap_servers: Optional[str] = None,
+        telemetry_topic: Optional[str] = None,
+        alerts_topic: Optional[str] = None,
     ):
         if self._initialized:
             return
 
-        self.bootstrap_servers = bootstrap_servers
-        self.telemetry_topic = telemetry_topic
-        self.alerts_topic = alerts_topic
+        self.bootstrap_servers = bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
+        self.telemetry_topic = telemetry_topic or settings.KAFKA_TOPIC_TELEMETRY
+        self.alerts_topic = alerts_topic or settings.KAFKA_TOPIC_ALERTS
         self.producer = None
         self.offline_queue: queue.Queue = queue.Queue(maxsize=10000)
+        self.fallback_listeners: List[Any] = []
         self._is_connected = False
         
         self._init_producer()
@@ -78,10 +76,18 @@ class GovernanceTelemetryProducer:
 
         try:
             from kafka import KafkaProducer
+            try:
+                from kafka.serializer import SerializeWrapper
+                val_ser = SerializeWrapper(lambda v: json.dumps(v).encode("utf-8"))
+                key_ser = SerializeWrapper(lambda k: k.encode("utf-8") if k else None)
+            except Exception:
+                val_ser = lambda v: json.dumps(v).encode("utf-8")
+                key_ser = lambda k: k.encode("utf-8") if k else None
+
             self.producer = KafkaProducer(
                 bootstrap_servers=self.bootstrap_servers.split(","),
-                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-                key_serializer=lambda k: k.encode("utf-8") if k else None,
+                value_serializer=val_ser,
+                key_serializer=key_ser,
                 acks=0,  # Fire-and-forget for telemetry streaming (<1ms)
                 retries=1,
                 max_block_ms=150,
@@ -92,6 +98,15 @@ class GovernanceTelemetryProducer:
             logger.warning(f"Kafka client initialization failed ({e}). Falling back to in-memory queue.")
             self._is_connected = False
             self.producer = None
+
+    def add_fallback_listener(self, listener):
+        """Registers a callback for offline / test telemetry events."""
+        if listener not in self.fallback_listeners:
+            self.fallback_listeners.append(listener)
+
+    def reconnect(self):
+        """Forces re-probe and re-connection to Kafka broker."""
+        self._init_producer()
 
     def emit_event(
         self,
@@ -104,6 +119,7 @@ class GovernanceTelemetryProducer:
         pep_latency_ms: float = 0.0,
         payload_preview: str = "",
         violation_reason: Optional[str] = None,
+        xai_factors: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
@@ -113,6 +129,7 @@ class GovernanceTelemetryProducer:
           - compliance_tags (for SOX/FFIEC audit)
           - mfa_stepup_status (for adaptive verification)
         """
+        factors = xai_factors if (xai_factors is not None and len(xai_factors) > 0) else ([violation_reason] if violation_reason else [])
         event = {
             "event_id": str(uuid.uuid4()),
             "timestamp": time.time(),
@@ -126,6 +143,7 @@ class GovernanceTelemetryProducer:
             "pep_latency_ms": round(pep_latency_ms, 3),
             "payload_preview": payload_preview[:256] if payload_preview else "",
             "violation_reason": violation_reason,
+            "xai_factors": factors,
             # Open-ended schema extension hook for future modules
             "metadata": metadata or {
                 "trace_id": str(uuid.uuid4())[:8],
@@ -144,8 +162,11 @@ class GovernanceTelemetryProducer:
         """Asynchronously produces to Kafka topic or in-memory fallback queue."""
         if self._is_connected and self.producer:
             try:
-                topic = self.alerts_topic if event["governor_status"] == "QUARANTINED" else self.telemetry_topic
-                self.producer.send(topic, key=event["agent_id"], value=event)
+                # All events published to primary telemetry stream
+                self.producer.send(self.telemetry_topic, key=event.get("agent_id"), value=event)
+                # Quarantined and critical risk events also dispatched to dedicated security alerts stream
+                if event.get("governor_status") == "QUARANTINED" or float(event.get("risk_score", 0.0)) >= 0.75:
+                    self.producer.send(self.alerts_topic, key=event.get("agent_id"), value=event)
                 return
             except Exception as e:
                 logger.error(f"Failed to publish event to Kafka: {e}. Storing in fallback queue.")
@@ -156,6 +177,13 @@ class GovernanceTelemetryProducer:
         except queue.Full:
             self.offline_queue.get_nowait()
             self.offline_queue.put_nowait(event)
+
+        # Notify registered fallback listeners (e.g. ML consumer in offline mode)
+        for listener in self.fallback_listeners:
+            try:
+                listener(event)
+            except Exception as e:
+                logger.error(f"Fallback listener execution error: {e}")
 
 
 # Global singleton instance

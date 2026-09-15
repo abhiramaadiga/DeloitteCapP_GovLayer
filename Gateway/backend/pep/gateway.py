@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request, Response, HTTPException
 from backend.core.auth import NHITokenManager
 from backend.core.killswitch import KillSwitch
 from backend.core.kafka_producer import telemetry_producer
+from backend.core.database import save_audit_log
 from backend.ml.risk_engine import evaluate_agent_request
 from backend.api.mock_banking import (
     get_bank_faqs,
@@ -44,6 +45,7 @@ async def pep_reverse_proxy(path: str, request: Request):
 
     # 2. Check Kill-Switch (<0.2ms)
     if KillSwitch.is_quarantined(agent_id):
+        pep_lat = round((time.perf_counter() - start_time) * 1000, 2)
         telemetry_producer.emit_event(
             agent_id=agent_id,
             role=agent_role,
@@ -51,8 +53,19 @@ async def pep_reverse_proxy(path: str, request: Request):
             method=method,
             governor_status="QUARANTINED",
             risk_score=1.0,
-            pep_latency_ms=round((time.perf_counter() - start_time) * 1000, 2),
-            violation_reason="Terminated by automated kill-switch"
+            pep_latency_ms=pep_lat,
+            violation_reason="Terminated by automated kill-switch",
+            xai_factors=["Terminated by automated kill-switch"]
+        )
+        save_audit_log(
+            agent_id=agent_id,
+            role=agent_role,
+            endpoint=normalized_path,
+            method=method,
+            risk_score=1.0,
+            decision="QUARANTINED",
+            xai_reasons=["Terminated by automated kill-switch"],
+            latency_ms=pep_lat
         )
         raise HTTPException(
             status_code=403,
@@ -83,6 +96,7 @@ async def pep_reverse_proxy(path: str, request: Request):
             violation_reason = "POLICY VIOLATION [PCI-DSS]: Support agents cannot perform bulk customer PII exports."
 
         if violation_reason:
+            pep_lat = round((time.perf_counter() - start_time) * 1000, 2)
             telemetry_producer.emit_event(
                 agent_id=agent_id,
                 role=agent_role,
@@ -90,9 +104,20 @@ async def pep_reverse_proxy(path: str, request: Request):
                 method=method,
                 governor_status="BLOCKED",
                 risk_score=0.90,
-                pep_latency_ms=round((time.perf_counter() - start_time) * 1000, 2),
+                pep_latency_ms=pep_lat,
                 payload_preview=body_text,
-                violation_reason=violation_reason
+                violation_reason=violation_reason,
+                xai_factors=[violation_reason]
+            )
+            save_audit_log(
+                agent_id=agent_id,
+                role=agent_role,
+                endpoint=normalized_path,
+                method=method,
+                risk_score=0.90,
+                decision="BLOCKED",
+                xai_reasons=[violation_reason],
+                latency_ms=pep_lat
             )
             raise HTTPException(status_code=403, detail=violation_reason)
 
@@ -110,6 +135,8 @@ async def pep_reverse_proxy(path: str, request: Request):
         if risk_result.get("is_anomaly"):
             KillSwitch.quarantine_agent(agent_id, "ML Behavioral Anomaly Detected", risk_score)
             detail_msg = f"SECURITY QUARANTINE: Agent '{agent_id}' auto-quarantined by Behavioral ML Engine (Risk: {risk_score})."
+            pep_lat = round((time.perf_counter() - start_time) * 1000, 2)
+            ml_factors = risk_result.get("factors", ["ML Behavioral Anomaly Detected"])
             telemetry_producer.emit_event(
                 agent_id=agent_id,
                 role=agent_role,
@@ -117,9 +144,20 @@ async def pep_reverse_proxy(path: str, request: Request):
                 method=method,
                 governor_status="QUARANTINED",
                 risk_score=risk_score,
-                pep_latency_ms=round((time.perf_counter() - start_time) * 1000, 2),
+                pep_latency_ms=pep_lat,
                 payload_preview=body_text,
-                violation_reason=detail_msg
+                violation_reason=detail_msg,
+                xai_factors=ml_factors
+            )
+            save_audit_log(
+                agent_id=agent_id,
+                role=agent_role,
+                endpoint=normalized_path,
+                method=method,
+                risk_score=risk_score,
+                decision="QUARANTINED",
+                xai_reasons=ml_factors,
+                latency_ms=pep_lat
             )
             raise HTTPException(status_code=403, detail=detail_msg)
     except HTTPException:
@@ -159,6 +197,7 @@ async def pep_reverse_proxy(path: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Upstream banking endpoint '{normalized_path}' not found")
 
     latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+    allowed_xai = ["Nominal behavioral risk profile and authorized passport"]
     telemetry_producer.emit_event(
         agent_id=agent_id,
         role=agent_role,
@@ -167,7 +206,18 @@ async def pep_reverse_proxy(path: str, request: Request):
         governor_status="ALLOWED",
         risk_score=risk_score,
         pep_latency_ms=latency_ms,
-        payload_preview=body_text
+        payload_preview=body_text,
+        xai_factors=allowed_xai
+    )
+    save_audit_log(
+        agent_id=agent_id,
+        role=agent_role,
+        endpoint=normalized_path,
+        method=method,
+        risk_score=risk_score,
+        decision="ALLOWED",
+        xai_reasons=["Nominal behavioral risk profile and authorized passport"],
+        latency_ms=latency_ms
     )
     return {
         "governor_status": "ALLOWED",

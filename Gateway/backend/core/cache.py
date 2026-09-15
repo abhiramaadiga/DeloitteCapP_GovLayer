@@ -40,7 +40,7 @@ class RevocationCache:
         # 2. Store in Redis if connected
         if _REDIS_CLIENT:
             try:
-                _REDIS_CLIENT.setex(namespaced_key, ttl_seconds, value)
+                _REDIS_CLIENT.set(namespaced_key, value, ex=ttl_seconds)
             except Exception:
                 pass
 
