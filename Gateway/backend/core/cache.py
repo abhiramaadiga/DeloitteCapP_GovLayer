@@ -80,3 +80,18 @@ class RevocationCache:
                 _REDIS_CLIENT.delete(namespaced_key)
             except Exception:
                 pass
+
+    @staticmethod
+    def clear_all_revocations() -> None:
+        """Clears all agent quarantines from both L1 cache and Redis."""
+        prefix = settings.REDIS_PREFIX + "revoked:agent:"
+        keys_to_delete = [k for k in list(_L1_CACHE.keys()) if k.startswith(prefix) or "revoked:agent:" in k]
+        for k in keys_to_delete:
+            _L1_CACHE.pop(k, None)
+            _L1_EXPIRY.pop(k, None)
+        if _REDIS_CLIENT:
+            try:
+                for k in _REDIS_CLIENT.keys(prefix + "*"):
+                    _REDIS_CLIENT.delete(k)
+            except Exception:
+                pass

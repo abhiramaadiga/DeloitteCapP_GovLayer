@@ -84,3 +84,36 @@ class NHITokenManager:
             return payload
         except Exception:
             return None
+
+    @staticmethod
+    def mint_user_token(
+        username: str,
+        role: str,
+        account_id: Optional[str] = None
+    ) -> str:
+        """Mints signed JWT for human/client session authentication."""
+        header = {"alg": "HS256", "typ": "JWT"}
+        now = int(time.time())
+        payload = {
+            "sub": username,
+            "username": username,
+            "role": role,
+            "account_id": account_id,
+            "iat": now,
+            "exp": now + settings.TOKEN_EXPIRY_SECONDS,
+            "iss": "Apex-ZeroTrust-AuthGate"
+        }
+        header_b64 = _b64_encode(json.dumps(header).encode("utf-8"))
+        payload_b64 = _b64_encode(json.dumps(payload).encode("utf-8"))
+        signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+        signature = hmac.new(
+            settings.JWT_SECRET_KEY.encode("utf-8"),
+            signing_input,
+            hashlib.sha256
+        ).digest()
+        return f"{header_b64}.{payload_b64}.{_b64_encode(signature)}"
+
+    @staticmethod
+    def verify_user_token(token: str) -> Optional[Dict[str, Any]]:
+        """Verifies HMAC signature and expiration on client session tokens."""
+        return NHITokenManager.verify_agent_token(token)

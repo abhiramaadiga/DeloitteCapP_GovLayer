@@ -8,11 +8,14 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/v1", tags=["Core Banking"])
 
 import copy
+import time
 
 try:
-    from backend.core.database import sync_account_balance
+    from backend.core.database import sync_account_balance, save_banking_transaction, get_account_transactions
 except Exception:
     sync_account_balance = None
+    save_banking_transaction = None
+    get_account_transactions = None
 
 # Baseline initial database state for testing & resets
 _INITIAL_ACCOUNTS_DB = {
@@ -34,17 +37,62 @@ _INITIAL_DEPOSITS_DB = {
     ]
 }
 
+_INITIAL_TRANSACTIONS_DB = {
+    "401": [
+        {
+            "id": "TXN-98214",
+            "date": "Today, 09:15 AM",
+            "description": "Tata Consultancy Payroll Direct Credit",
+            "category": "Salary",
+            "amount": 145000.0,
+            "type": "credit",
+            "status": "Settled"
+        },
+        {
+            "id": "TXN-98190",
+            "date": "Yesterday, 18:40 PM",
+            "description": "UPI Merchant Settlement (Blinkit Groceries)",
+            "category": "Merchant",
+            "amount": 2450.0,
+            "type": "debit",
+            "status": "Settled"
+        },
+        {
+            "id": "TXN-98012",
+            "date": "12 Sep 2026",
+            "description": "Apex Commercial ATM Cash Withdrawal (Indiranagar)",
+            "category": "Cash",
+            "amount": 10000.0,
+            "type": "debit",
+            "status": "Settled"
+        },
+        {
+            "id": "TXN-97940",
+            "date": "10 Sep 2026",
+            "description": "Quarterly Fixed Deposit Interest Settlement (#FD-901)",
+            "category": "Interest",
+            "amount": 9062.5,
+            "type": "credit",
+            "status": "Settled"
+        }
+    ]
+}
+
 # Live in-memory mock database
 ACCOUNTS_DB = copy.deepcopy(_INITIAL_ACCOUNTS_DB)
 DEPOSITS_DB = copy.deepcopy(_INITIAL_DEPOSITS_DB)
+TRANSACTIONS_DB = copy.deepcopy(_INITIAL_TRANSACTIONS_DB)
 
 def reset_database():
     """Resets core banking mock database to fresh baseline."""
-    global ACCOUNTS_DB, DEPOSITS_DB
+    global ACCOUNTS_DB, DEPOSITS_DB, TRANSACTIONS_DB
     ACCOUNTS_DB.clear()
     ACCOUNTS_DB.update(copy.deepcopy(_INITIAL_ACCOUNTS_DB))
     DEPOSITS_DB.clear()
     DEPOSITS_DB.update(copy.deepcopy(_INITIAL_DEPOSITS_DB))
+    TRANSACTIONS_DB.clear()
+    TRANSACTIONS_DB.update(copy.deepcopy(_INITIAL_TRANSACTIONS_DB))
+
 
 class TransferRequest(BaseModel):
     source_account: str
@@ -91,6 +139,35 @@ def execute_wire_transfer(req: TransferRequest):
     src["balance_inr"] = round(src["balance_inr"] - req.amount_inr, 2)
     dest["balance_inr"] = round(dest["balance_inr"] + req.amount_inr, 2)
 
+    txn_id = f"TXN-WIRE-{int(time.time() * 1000) % 100000}"
+    time_str = time.strftime("%d %b %Y, %H:%M")
+
+    # In-memory transaction records
+    if req.source_account not in TRANSACTIONS_DB:
+        TRANSACTIONS_DB[req.source_account] = []
+    TRANSACTIONS_DB[req.source_account].insert(0, {
+        "id": txn_id,
+        "date": "Just now",
+        "description": f"Outward Wire Settlement to Beneficiary (#{req.destination_account})",
+        "category": "Wire Transfer",
+        "amount": req.amount_inr,
+        "type": "debit",
+        "status": "Settled"
+    })
+
+    if req.destination_account not in TRANSACTIONS_DB:
+        TRANSACTIONS_DB[req.destination_account] = []
+    TRANSACTIONS_DB[req.destination_account].insert(0, {
+        "id": txn_id,
+        "date": "Just now",
+        "description": f"Inward Wire Transfer from Account #{req.source_account}",
+        "category": "Wire Transfer",
+        "amount": req.amount_inr,
+        "type": "credit",
+        "status": "Settled"
+    })
+
+    # Persistent database sync
     if sync_account_balance:
         try:
             sync_account_balance(req.source_account, src["balance_inr"])
@@ -98,9 +175,32 @@ def execute_wire_transfer(req: TransferRequest):
         except Exception:
             pass
 
+    if save_banking_transaction:
+        try:
+            save_banking_transaction(
+                account_id=req.source_account,
+                txn_id=txn_id,
+                description=f"Outward Wire Settlement to Beneficiary (#{req.destination_account})",
+                category="Wire Transfer",
+                amount=req.amount_inr,
+                txn_type="debit",
+                status="Settled"
+            )
+            save_banking_transaction(
+                account_id=req.destination_account,
+                txn_id=txn_id,
+                description=f"Inward Wire Transfer from Account #{req.source_account}",
+                category="Wire Transfer",
+                amount=req.amount_inr,
+                txn_type="credit",
+                status="Settled"
+            )
+        except Exception:
+            pass
+
     return {
         "status": "COMPLETED",
-        "transaction_id": "TXN-WIRE-99214A",
+        "transaction_id": txn_id,
         "amount": req.amount_inr,
         "from": req.source_account,
         "to": req.destination_account,
@@ -124,9 +224,10 @@ def get_account_deposits(account_id: str):
     """Safe read endpoint: Fixed deposit and investment asset lookup."""
     if account_id not in DEPOSITS_DB:
         return {"account_id": account_id, "deposits": []}
+    active_deposits = [d for d in DEPOSITS_DB[account_id] if d.get("status") != "LIQUIDATED"]
     return {
         "account_id": account_id,
-        "total_deposits_inr": sum(d["principal_inr"] for d in DEPOSITS_DB[account_id]),
+        "total_deposits_inr": sum(d["principal_inr"] for d in active_deposits),
         "deposits": DEPOSITS_DB[account_id]
     }
 
@@ -150,11 +251,40 @@ def liquidate_fixed_deposit(account_id: str, deposit_id: str):
     principal = target["principal_inr"]
     ACCOUNTS_DB[account_id]["balance_inr"] = round(ACCOUNTS_DB[account_id]["balance_inr"] + principal, 2)
 
+    txn_id = f"TXN-LIQ-{int(time.time() * 1000) % 100000}"
+
+    # In-memory transaction records
+    if account_id not in TRANSACTIONS_DB:
+        TRANSACTIONS_DB[account_id] = []
+    TRANSACTIONS_DB[account_id].insert(0, {
+        "id": txn_id,
+        "date": "Just now",
+        "description": f"Fixed Deposit Premature Liquidation ({deposit_id})",
+        "category": "Investment Credit",
+        "amount": principal,
+        "type": "credit",
+        "status": "Settled"
+    })
+
     try:
         from backend.core.database import sync_account_balance
         sync_account_balance(account_id, ACCOUNTS_DB[account_id]["balance_inr"])
     except Exception:
         pass
+
+    if save_banking_transaction:
+        try:
+            save_banking_transaction(
+                account_id=account_id,
+                txn_id=txn_id,
+                description=f"Fixed Deposit Premature Liquidation ({deposit_id})",
+                category="Investment Credit",
+                amount=principal,
+                txn_type="credit",
+                status="Settled"
+            )
+        except Exception:
+            pass
 
     return {
         "status": "LIQUIDATION_APPROVED",
@@ -164,3 +294,17 @@ def liquidate_fixed_deposit(account_id: str, deposit_id: str):
         "new_balance_inr": ACCOUNTS_DB[account_id]["balance_inr"],
         "message": "Deposit liquidated and credited to savings."
     }
+
+@router.get("/accounts/{account_id}/transactions")
+def get_account_transactions_endpoint(account_id: str, limit: int = 50):
+    """Safe read endpoint: Retrieve transaction activity ledger for an account."""
+    if get_account_transactions:
+        try:
+            db_txns = get_account_transactions(account_id, limit=limit)
+            if db_txns and len(db_txns) > 0:
+                return {"account_id": account_id, "transactions": db_txns}
+        except Exception:
+            pass
+    txns = TRANSACTIONS_DB.get(account_id, [])[:limit]
+    return {"account_id": account_id, "transactions": txns}
+
