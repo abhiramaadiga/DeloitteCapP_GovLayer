@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "PostgreSQL Governor DB (governance_db)",
+      "Group": "Servers",
+      "Port": 5432,
+      "Username": "governor_admin",
+      "Host": "postgres",
+      "SSLMode": "prefer",
+      "MaintenanceDB": "governance_db",
+      "PassFile": "/var/lib/pgadmin/.pgpass",
+      "Favorite": true
+    }
+  }
+}

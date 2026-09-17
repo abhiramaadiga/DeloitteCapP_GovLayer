@@ -3,11 +3,18 @@ backend/pep/gateway.py
 High-performance Zero-Trust Policy Enforcement Point (PEP) Reverse Proxy.
 """
 import time
+import hmac
+import hashlib
+import json
+import base64
+from typing import Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Request, Response, HTTPException
+from backend.core.config import settings
 from backend.core.auth import NHITokenManager
 from backend.core.killswitch import KillSwitch
 from backend.core.kafka_producer import telemetry_producer
 from backend.core.database import save_audit_log
+from backend.core.policy_engine import policy_engine
 from backend.ml.risk_engine import evaluate_agent_request
 from backend.api.mock_banking import (
     get_bank_faqs,
@@ -21,22 +28,108 @@ from backend.api.mock_banking import (
 
 router = APIRouter(prefix="/gateway", tags=["Policy Enforcement Point"])
 
+def _b64_decode(data: str) -> bytes:
+    padding = 4 - (len(data) % 4)
+    if padding != 4:
+        data += "=" * padding
+    return base64.urlsafe_b64decode(data.encode("utf-8"))
+
+def verify_agent_passport_detailed(token: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Validates HMAC-SHA256 signature and expiration of an Agent Passport token.
+    Returns (claims_dict, error_code).
+    error_code is one of:
+      - None (valid)
+      - "MALFORMED" (not 3 parts, invalid base64, or unparseable json)
+      - "TAMPERED" (HMAC signature does not match or payload corrupted)
+      - "EXPIRED" (signature valid, but token expiration timestamp has passed)
+    """
+    if not token:
+        return None, "MALFORMED"
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None, "MALFORMED"
+
+        header_b64, payload_b64, sig_b64 = parts
+        signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+
+        expected_sig = hmac.new(
+            settings.JWT_SECRET_KEY.encode("utf-8"),
+            signing_input,
+            hashlib.sha256
+        ).digest()
+
+        try:
+            actual_sig = _b64_decode(sig_b64)
+        except Exception:
+            return None, "TAMPERED"
+
+        if not hmac.compare_digest(expected_sig, actual_sig):
+            return None, "TAMPERED"
+
+        try:
+            payload = json.loads(_b64_decode(payload_b64).decode("utf-8"))
+        except Exception:
+            return None, "MALFORMED"
+
+        if not isinstance(payload, dict):
+            return None, "MALFORMED"
+
+        if time.time() > payload.get("exp", 0):
+            return None, "EXPIRED"
+
+        return payload, None
+    except Exception:
+        return None, "MALFORMED"
+
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def pep_reverse_proxy(path: str, request: Request):
     start_time = time.perf_counter()
     
-    # 1. Extract Bearer Token
+    # 1. Extract and Validate Bearer Token
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authentication Failed: Missing Bearer Agent Passport")
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication Failed: Missing Bearer Agent Passport",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
         
     token = auth_header.replace("Bearer ", "").strip()
-    agent_claims = NHITokenManager.verify_agent_token(token)
-    if not agent_claims:
-        raise HTTPException(status_code=403, detail="Security Denial: Invalid or Expired Agent Passport Signature")
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication Failed: Missing Bearer Agent Passport",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    agent_claims, auth_error = verify_agent_passport_detailed(token)
+    if auth_error == "EXPIRED":
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication Failed: Agent Passport Expired",
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token expired"'}
+        )
+    elif auth_error == "MALFORMED":
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication Failed: Malformed Agent Passport",
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token is malformed"'}
+        )
+    elif auth_error == "TAMPERED" or not agent_claims:
+        raise HTTPException(
+            status_code=403,
+            detail="Security Denial: Tampered or Invalid Agent Passport Signature"
+        )
         
     agent_id = agent_claims.get("agent_id")
     agent_role = agent_claims.get("role")
+    if not agent_id or not agent_role:
+        raise HTTPException(
+            status_code=403,
+            detail="Security Denial: Unauthorized Agent Passport Claims"
+        )
     
     # Normalize path cleanly & get HTTP method
     clean_path = path.strip("/")
@@ -85,41 +178,39 @@ async def pep_reverse_proxy(path: str, request: Request):
         except Exception:
             pass
 
-    # 4. Deterministic Least-Privilege Policy Check (SOX 404 / Least-Privilege Gate)
-    if agent_role == "tier1_customer_service":
-        violation_reason = None
-        if normalized_path.startswith("/transfers"):
-            violation_reason = "POLICY VIOLATION [SOX-404]: Support agents are prohibited from initiating financial transfers."
-        elif "/deposits/liquidate" in normalized_path:
-            violation_reason = "POLICY VIOLATION [BANKING-GOV]: Support agents are prohibited from liquidating investment assets."
-        elif normalized_path == "/customers/export":
-            violation_reason = "POLICY VIOLATION [PCI-DSS]: Support agents cannot perform bulk customer PII exports."
-
-        if violation_reason:
-            pep_lat = round((time.perf_counter() - start_time) * 1000, 2)
-            telemetry_producer.emit_event(
-                agent_id=agent_id,
-                role=agent_role,
-                endpoint=normalized_path,
-                method=method,
-                governor_status="BLOCKED",
-                risk_score=0.90,
-                pep_latency_ms=pep_lat,
-                payload_preview=body_text,
-                violation_reason=violation_reason,
-                xai_factors=[violation_reason]
-            )
-            save_audit_log(
-                agent_id=agent_id,
-                role=agent_role,
-                endpoint=normalized_path,
-                method=method,
-                risk_score=0.90,
-                decision="BLOCKED",
-                xai_reasons=[violation_reason],
-                latency_ms=pep_lat
-            )
-            raise HTTPException(status_code=403, detail=violation_reason)
+    # 4. Deterministic Database-Backed Policy Check (Dynamic In-Memory Cache)
+    policy_eval = policy_engine.evaluate(
+        agent_id=agent_id,
+        role=agent_role,
+        endpoint=normalized_path,
+        method=method
+    )
+    if not policy_eval.get("allowed", True):
+        violation_reason = policy_eval.get("violation_reason") or "POLICY VIOLATION: Access denied by Zero-Trust Governance Policy."
+        pep_lat = round((time.perf_counter() - start_time) * 1000, 2)
+        telemetry_producer.emit_event(
+            agent_id=agent_id,
+            role=agent_role,
+            endpoint=normalized_path,
+            method=method,
+            governor_status="BLOCKED",
+            risk_score=0.90,
+            pep_latency_ms=pep_lat,
+            payload_preview=body_text,
+            violation_reason=violation_reason,
+            xai_factors=[violation_reason]
+        )
+        save_audit_log(
+            agent_id=agent_id,
+            role=agent_role,
+            endpoint=normalized_path,
+            method=method,
+            risk_score=0.90,
+            decision="BLOCKED",
+            xai_reasons=[violation_reason],
+            latency_ms=pep_lat
+        )
+        raise HTTPException(status_code=403, detail=violation_reason)
 
     # 5. Behavioral ML Risk Evaluation (Member 2's Engine)
     risk_score = 0.10
@@ -189,7 +280,7 @@ async def pep_reverse_proxy(path: str, request: Request):
         if req_body_json:
             req_obj = TransferRequest(**req_body_json)
         else:
-            req_obj = TransferRequest(source_account="401", destination_account="992", amount_inr=0.0, remarks="")
+            req_obj = TransferRequest(source_account="401", destination_account="402", amount_inr=5000.0, remarks="Virtual Assistant Wire Transfer")
         response_data = execute_wire_transfer(req_obj)
     elif normalized_path == "/customers/export":
         response_data = export_all_customer_data()

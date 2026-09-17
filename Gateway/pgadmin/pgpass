@@ -1,0 +1,4 @@
+postgres:5432:governance_db:governor_admin:deloitte_secure_pass
+postgres:5432:*:governor_admin:deloitte_secure_pass
+localhost:5432:governance_db:governor_admin:deloitte_secure_pass
+localhost:5432:*:governor_admin:deloitte_secure_pass
