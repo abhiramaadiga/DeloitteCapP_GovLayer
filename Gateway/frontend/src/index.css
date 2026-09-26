@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-600 selection:text-white min-h-screen font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(9, 9, 11, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(39, 39, 42, 0.8);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(63, 63, 70, 1);
+}
+
+/* Smooth Fade and Slide Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Micro-Interaction Classes */
+.hover-lift {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.45);
+}
+
+.card-hover {
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-1.5px);
+  border-color: rgba(63, 63, 70, 0.9);
+}
+
+/* Pop-Up Modal and Tooltip Scale In */
+.popup-scale {
+  animation: popScale 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes popScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
