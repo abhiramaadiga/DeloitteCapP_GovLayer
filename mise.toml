@@ -1,3 +1,4 @@
 [tools]
 node = "24.14"
+opa = "1.20"
 python = "3.11"
