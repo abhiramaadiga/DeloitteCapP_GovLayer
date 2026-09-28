@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from backend.core.config import settings
 
 logger = logging.getLogger("agentic_iam.kafka_producer")
+logging.getLogger("kafka").setLevel(logging.ERROR)
 
 
 class GovernanceTelemetryProducer:

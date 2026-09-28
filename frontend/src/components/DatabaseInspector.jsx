@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Database, AlertTriangle } from 'lucide-react';
-import { getDbTables, getTableSchema, getTableRows } from '../services/api';
+import { getDbTables, getTableRows } from '../services/api';
 import TableSidebar from './database/TableSidebar';
-import SchemaPanel from './database/SchemaPanel';
 import DataGrid from './database/DataGrid';
 import PaginationBar from './database/PaginationBar';
 import SearchFilter from './database/SearchFilter';
@@ -10,8 +9,6 @@ import SearchFilter from './database/SearchFilter';
 export default function DatabaseInspector({ isBackendOnline }) {
   const [tables, setTables] = useState([]);
   const [selectedTable, setSelectedTable] = useState(null);
-  const [schema, setSchema] = useState(null);
-  const [schemaOpen, setSchemaOpen] = useState(true);
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
   const [page, setPage] = useState(1);
@@ -47,22 +44,6 @@ export default function DatabaseInspector({ isBackendOnline }) {
     loadTables();
     return () => { mounted = false; };
   }, []);
-
-  // Load schema when table changes
-  useEffect(() => {
-    if (!selectedTable) return;
-    let mounted = true;
-    const loadSchema = async () => {
-      try {
-        const s = await getTableSchema(selectedTable);
-        if (mounted) setSchema(s);
-      } catch {
-        if (mounted) setSchema(null);
-      }
-    };
-    loadSchema();
-    return () => { mounted = false; };
-  }, [selectedTable]);
 
   // Load rows when table, page, sort, or search changes
   const loadRows = useCallback(async () => {
@@ -154,9 +135,9 @@ export default function DatabaseInspector({ isBackendOnline }) {
               'Database Inspector'
             )}
           </h2>
-          {schema && (
+          {totalRows > 0 && (
             <span className="text-[11px] font-mono text-zinc-500 ml-auto">
-              {schema.row_count?.toLocaleString()} rows  ·  {schema.columns?.length} columns
+              {totalRows.toLocaleString()} rows  ·  {columns.length} columns
             </span>
           )}
         </div>
@@ -170,15 +151,6 @@ export default function DatabaseInspector({ isBackendOnline }) {
           dbType={dbType}
           selectedTable={selectedTable}
         />
-
-        {/* Collapsible Schema Panel */}
-        {schema && (
-          <SchemaPanel
-            schema={schema}
-            isOpen={schemaOpen}
-            onToggle={() => setSchemaOpen((prev) => !prev)}
-          />
-        )}
 
         {/* Error Banner */}
         {error && (

@@ -69,10 +69,10 @@ export default function AdminDashboard({
             </span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
-            Agentic-AI Identity & Access Governor Console
+            Autonomous Agent Security & Governance Console
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-            Real-time policy enforcement point (PEP), zero-trust non-human identity revocation, and continuous ML drift surveillance.
+            Real-time policy enforcement, non-human identity revocation, and continuous ML drift surveillance.
           </p>
         </div>
 
@@ -145,7 +145,7 @@ export default function AdminDashboard({
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-indigo-200" />
-          <span>Zero-Trust SOC Overview</span>
+          <span>Security Operations Overview</span>
         </button>
 
         <button

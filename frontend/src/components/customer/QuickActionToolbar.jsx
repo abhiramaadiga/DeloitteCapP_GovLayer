@@ -78,7 +78,7 @@ export default function QuickActionToolbar({
             Test Prompt Injection
           </div>
           <p className="text-[11px] text-zinc-400 mt-0.5">
-            Trigger real-time Zero-Trust Governor Intercept
+            Simulate real-time policy boundary intercept
           </p>
         </button>
       </Tooltip>

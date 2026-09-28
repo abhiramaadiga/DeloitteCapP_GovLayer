@@ -21,6 +21,27 @@ from backend.core.config import settings
 from backend.core.kafka_producer import telemetry_producer
 
 logger = logging.getLogger("agentic_iam.kafka_consumer")
+# Suppress noisy internal kafka-python transport and group rebalance logs
+logging.getLogger("kafka").setLevel(logging.ERROR)
+
+
+def _safe_deserialize_telemetry(raw_bytes: Any) -> Dict[str, Any]:
+    """Safely decodes raw Kafka bytes into a Python dict without raising unhandled exceptions."""
+    if raw_bytes is None:
+        return {}
+    if isinstance(raw_bytes, dict):
+        return raw_bytes
+    try:
+        if isinstance(raw_bytes, bytes):
+            raw_bytes = raw_bytes.decode("utf-8", errors="replace")
+        if isinstance(raw_bytes, str):
+            raw_str = raw_bytes.strip()
+            if not raw_str:
+                return {}
+            return json.loads(raw_str)
+        return dict(raw_bytes)
+    except Exception:
+        return {}
 
 
 class GovernanceEventConsumer:
@@ -110,9 +131,9 @@ class GovernanceEventConsumer:
             from kafka import KafkaConsumer
             try:
                 from kafka.serializer import DeserializeWrapper
-                val_deser = DeserializeWrapper(lambda m: json.loads(m.decode("utf-8")))
+                val_deser = DeserializeWrapper(_safe_deserialize_telemetry)
             except Exception:
-                val_deser = lambda m: json.loads(m.decode("utf-8"))
+                val_deser = _safe_deserialize_telemetry
 
             self.kafka_consumer = KafkaConsumer(
                 *self.topics,
@@ -158,6 +179,8 @@ class GovernanceEventConsumer:
         5. Buffers feedback samples for RLHF / model recalibration.
         """
         with self._lock:
+            if not isinstance(event, dict):
+                return {"event_id": str(uuid.uuid4()), "status": "MALFORMED_IGNORED", "drift_detected": False}
             event_id = str(event.get("event_id") or uuid.uuid4())
             if event_id in self._processed_ids_set:
                 return {"event_id": event_id, "status": "DUPLICATE_IGNORED", "drift_detected": False}
@@ -441,24 +464,22 @@ class GovernanceEventConsumer:
         """
         logger.info(f"Governance event consumer worker loop started (topics: {self.topics}).")
         last_reconnect_probe = 0.0
+        reconnect_interval = 5.0
         while self._running:
             # 1. Drain fallback queue
             try:
                 while not self.fallback_queue.empty():
                     event = self.fallback_queue.get_nowait()
-                    self.process_event(event)
+                    if isinstance(event, dict):
+                        self.process_event(event)
             except Exception as e:
                 logger.error(f"Fallback queue processing error: {e}")
 
             # 2. Poll Kafka if active
             if self.kafka_consumer:
+                records = {}
                 try:
                     records = self.kafka_consumer.poll(timeout_ms=500)
-                    for topic_partition, messages in records.items():
-                        for message in messages:
-                            if not self._running:
-                                break
-                            self.process_event(message.value)
                 except Exception as e:
                     logger.warning(f"Kafka consume error ({e}). Entering fallback and probing reconnect.")
                     try:
@@ -466,16 +487,40 @@ class GovernanceEventConsumer:
                     except Exception:
                         pass
                     self.kafka_consumer = None
+                    records = {}
+
+                # Decoupled processing: Malformed payloads will never destroy Kafka consumer connection
+                for topic_partition, messages in records.items():
+                    for message in messages:
+                        if not self._running:
+                            break
+                        try:
+                            val = message.value
+                            if isinstance(val, str):
+                                try:
+                                    val = json.loads(val)
+                                except Exception:
+                                    pass
+                            if isinstance(val, dict) and val:
+                                self.process_event(val)
+                        except Exception as pe:
+                            logger.error(f"Error processing telemetry event from Kafka: {pe}")
             else:
-                # 3. If Kafka not connected, periodically probe for broker availability
+                # 3. If Kafka not connected, probe for broker availability with exponential backoff
                 now = time.time()
-                if now - last_reconnect_probe > 5.0:
+                if now - last_reconnect_probe > reconnect_interval:
                     last_reconnect_probe = now
                     if self._broker_reachable():
                         try:
                             self._init_kafka()
+                            if self.kafka_consumer:
+                                reconnect_interval = 5.0  # Reset backoff on success
+                            else:
+                                reconnect_interval = min(reconnect_interval * 1.5, 60.0)
                         except Exception:
-                            pass
+                            reconnect_interval = min(reconnect_interval * 1.5, 60.0)
+                    else:
+                        reconnect_interval = min(reconnect_interval * 1.5, 60.0)
                 time.sleep(0.2)
 
     def start(self):

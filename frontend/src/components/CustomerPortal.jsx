@@ -78,7 +78,7 @@ export default function CustomerPortal({
             </div>
             <p className="text-xs text-zinc-400 font-mono mt-0.5 flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Zero-Trust Behavioral Governor Enforced • Custody Account #{currentAccountId}</span>
+              <span>Primary Custody Account #{currentAccountId} · Active Status</span>
             </p>
           </div>
         </div>
@@ -142,7 +142,7 @@ export default function CustomerPortal({
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-indigo-200" />
-          <span>Zero-Trust Security & NHI</span>
+          <span>Security & Governance</span>
         </button>
       </div>
 
@@ -181,7 +181,7 @@ export default function CustomerPortal({
         </div>
       )}
 
-      {/* TAB 3: ZERO-TRUST SECURITY & POLICIES */}
+      {/* TAB 3: SECURITY & GOVERNANCE */}
       {activeCustomerTab === 'security' && (
         <div className="space-y-6 animate-fadeIn">
           <div className="bg-zinc-900/90 rounded-2xl border border-zinc-800/90 p-6 shadow-xl space-y-6">
@@ -192,13 +192,13 @@ export default function CustomerPortal({
                   <span>Autonomous AI Agent Governance & Boundaries</span>
                 </h2>
                 <p className="text-xs text-zinc-400 mt-1">
-                  How the Zero-Trust Policy Enforcement Point (PEP) isolates and protects customer assets.
+                  Real-time policy validation and deterministic guardrails safeguarding client assets.
                 </p>
               </div>
               <span className={`text-xs font-mono font-bold px-3 py-1 rounded-full border ${
                 isQuarantined ? 'bg-rose-950 text-rose-300 border-rose-800 animate-pulse' : 'bg-emerald-950 text-emerald-300 border-emerald-800'
               }`}>
-                {isQuarantined ? 'KILL-SWITCH QUARANTINED' : 'PEP ACTIVE & HEALTHY'}
+                {isQuarantined ? 'AGENT RESTRICTED' : 'GATEWAY SECURED & ACTIVE'}
               </span>
             </div>
 
@@ -278,7 +278,7 @@ export default function CustomerPortal({
                 {isChatOpen ? 'Minimize Assistant' : 'Apex AI Assistant'}
               </span>
               <span className="hidden sm:inline text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-950/90 border border-indigo-700/60 text-indigo-300">
-                {isQuarantined ? 'QUARANTINED' : 'PEP Protected'}
+                {isQuarantined ? 'RESTRICTED' : 'Enterprise AI'}
               </span>
             </button>
           </div>

@@ -73,7 +73,7 @@ export default function BalanceHero({
           </div>
           <p className="text-[11px] text-zinc-500 mt-1 flex items-center gap-1 font-mono">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            Zero-Trust Fast-Path PEP Guarded
+            Real-Time Cleared Balance · Instant Settlement
           </p>
         </div>
 

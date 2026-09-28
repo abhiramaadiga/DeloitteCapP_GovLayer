@@ -176,10 +176,15 @@ export default function PolicyManagementSection({ isBackendOnline = true }) {
     setError(null);
     try {
       if (modalMode === 'create') {
-        await createGovernancePolicy(formData);
+        const res = await createGovernancePolicy(formData);
+        const newPolicy = res?.policy || { ...formData, id: Date.now() };
+        // Instantly prepend to state so the table and all 4 metric cards update immediately
+        setPolicies((prev) => [newPolicy, ...prev.filter((p) => p.policy_id !== newPolicy.policy_id)]);
         showSuccess(`Policy ${formData.policy_id} created and committed to PostgreSQL. PEP cache synchronized.`);
       } else {
-        await updateGovernancePolicy(formData.policy_id, formData);
+        const res = await updateGovernancePolicy(formData.policy_id, formData);
+        const updatedPolicy = res?.policy || formData;
+        setPolicies((prev) => prev.map((p) => (p.policy_id === updatedPolicy.policy_id ? updatedPolicy : p)));
         showSuccess(`Policy ${formData.policy_id} updated successfully. PEP cache synchronized.`);
       }
       setModalOpen(false);
@@ -197,6 +202,7 @@ export default function PolicyManagementSection({ isBackendOnline = true }) {
     setActionLoading(true);
     try {
       await deleteGovernancePolicy(policyToDelete.policy_id);
+      setPolicies((prev) => prev.filter((p) => p.policy_id !== policyToDelete.policy_id));
       showSuccess(`Policy ${policyToDelete.policy_id} permanently removed.`);
       setDeleteModalOpen(false);
       setPolicyToDelete(null);
@@ -417,7 +423,8 @@ export default function PolicyManagementSection({ isBackendOnline = true }) {
 
         {toolsDrawerOpen && (
           <div className="p-6 pt-2 border-t border-zinc-800/80 animate-slide-up">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="max-h-80 overflow-y-auto pr-1.5 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               {tools.map((t) => {
                 const isCritical = t.risk_level === 'CRITICAL';
                 const isHigh = t.risk_level === 'HIGH';
@@ -483,6 +490,7 @@ export default function PolicyManagementSection({ isBackendOnline = true }) {
                   </div>
                 );
               })}
+            </div>
             </div>
           </div>
         )}
