@@ -106,41 +106,81 @@ def check_docker_infrastructure() -> dict:
     Actively checks TCP connectivity for Docker Compose stack services:
     - PostgreSQL on port 5432
     - Redis on port 6379
-    - Kafka on port 9092
+    - Kafka on port 9092 / 29092
+    Supports both internal container networking ('postgres', 'redis', 'kafka')
+    and external host networking ('localhost', '127.0.0.1').
     Returns truthful status of whether Docker stack is connected or running in standalone fallback.
     """
     import socket
     
-    def is_port_open(host: str, port: int, timeout: float = 0.15) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except Exception:
-            return False
+    def check_service(hosts: list, ports: list, timeout: float = 0.2):
+        for h in hosts:
+            if not h:
+                continue
+            for p in ports:
+                try:
+                    with socket.create_connection((h, p), timeout=timeout):
+                        return True, h, p
+                except Exception:
+                    pass
+        first_h = hosts[0] if hosts else "localhost"
+        first_p = ports[0] if ports else 0
+        return False, first_h, first_p
 
-    pg_open = is_port_open("localhost", 5432)
-    redis_open = is_port_open("localhost", 6379)
-    kafka_open = is_port_open("localhost", 9092)
-
+    # 1. PostgreSQL check
     db_status = get_db_status()
-    docker_connected = pg_open and redis_open and kafka_open
+    pg_hosts = list(dict.fromkeys([h for h in [getattr(settings, "POSTGRES_HOST", None), "postgres", "127.0.0.1", "localhost"] if h]))
+    pg_ports = list(dict.fromkeys([p for p in [getattr(settings, "POSTGRES_PORT", None), 5432] if p]))
+    pg_open, pg_host, pg_port = check_service(pg_hosts, pg_ports)
+    # If SQLAlchemy has an active healthy PostgreSQL connection, consider pg_open True
+    if db_status.get("healthy") and db_status.get("is_postgres"):
+        pg_open = True
+        pg_port = pg_port or 5432
+
+    # 2. Redis check
+    redis_hosts = list(dict.fromkeys([h for h in [getattr(settings, "REDIS_HOST", None), "redis", "127.0.0.1", "localhost"] if h]))
+    redis_ports = list(dict.fromkeys([p for p in [getattr(settings, "REDIS_PORT", None), 6379] if p]))
+    redis_open, redis_host, redis_port = check_service(redis_hosts, redis_ports)
+
+    # 3. Kafka check
+    kafka_bootstraps = [b.strip() for b in getattr(settings, "KAFKA_BOOTSTRAP_SERVERS", "").split(",") if b.strip()]
+    kafka_hosts = []
+    kafka_ports = []
+    for bs in kafka_bootstraps:
+        if ":" in bs:
+            h, p = bs.split(":", 1)
+            kafka_hosts.append(h)
+            try:
+                kafka_ports.append(int(p))
+            except ValueError:
+                pass
+        else:
+            kafka_hosts.append(bs)
+    kafka_hosts.extend(["kafka", "127.0.0.1", "localhost"])
+    kafka_ports.extend([29092, 9092])
+    kafka_hosts = list(dict.fromkeys([h for h in kafka_hosts if h]))
+    kafka_ports = list(dict.fromkeys([p for p in kafka_ports if p]))
+    kafka_open, kafka_host, kafka_port = check_service(kafka_hosts, kafka_ports)
+
+    # Docker stack is connected if PostgreSQL is active and either Redis or Kafka is active
+    docker_connected = pg_open and (redis_open or kafka_open)
 
     return {
         "docker_connected": docker_connected,
         "mode": "DOCKER_STACK_ACTIVE" if docker_connected else "STANDALONE_RESILIENT_FALLBACK",
         "services": {
             "postgresql": {
-                "port": 5432,
+                "port": pg_port or 5432,
                 "connected": pg_open,
                 "engine": "PostgreSQL 16.2" if pg_open else "Fallback: SQLite WAL (governance_audit.db)"
             },
             "redis": {
-                "port": 6379,
+                "port": redis_port or 6379,
                 "connected": redis_open,
                 "engine": "Redis 7.2" if redis_open else "Fallback: In-Memory L1 Cache"
             },
             "kafka": {
-                "port": 9092,
+                "port": kafka_port or 9092,
                 "connected": kafka_open,
                 "engine": "Apache Kafka 3.7 (KRaft)" if kafka_open else "Fallback: In-Memory Telemetry Queue"
             }
