@@ -124,7 +124,7 @@ export default function LoginView({ onLogin }) {
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Zero-Trust Identity & Access Governor • Policy Enforcement Point
+                Enterprise Banking & Autonomous Security Infrastructure
               </p>
             </div>
           </div>
@@ -362,7 +362,7 @@ export default function LoginView({ onLogin }) {
               <span>SOX-404 Audited</span>
             </div>
             <p className="text-zinc-600">
-              Deloitte Capstone 2026 • Non-Human Identity Zero-Trust Governance
+              Deloitte Capstone 2026 • Autonomous Agent Security & Governance Platform
             </p>
           </div>
         </div>

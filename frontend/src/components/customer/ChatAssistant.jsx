@@ -65,11 +65,11 @@ export default function ChatAssistant({
                     : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
                 }`}
               >
-                {isQuarantined ? 'QUARANTINED' : 'PEP PROTECTED'}
+                {isQuarantined ? 'RESTRICTED' : 'ONLINE'}
               </span>
             </div>
             <p className="text-[10px] text-zinc-400 font-mono">
-              {supportAgent?.agent_id || 'Agent-Support-01'} • Least Privilege Enforced
+              {supportAgent?.agent_id || 'Agent-Support-01'} • Verified Session
             </p>
           </div>
         </div>
@@ -161,13 +161,13 @@ export default function ChatAssistant({
             <div className="text-[11px] font-mono text-zinc-400 flex items-center justify-between border-b border-zinc-800/80 pb-1.5">
               <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Zero-Trust Governance Test Scenarios</span>
+                <span>Autonomous Banking Scenarios</span>
               </span>
               <span className="text-[10px] text-zinc-500">1-Click Try</span>
             </div>
 
             <p className="text-[11px] text-zinc-400 leading-snug">
-              This autonomous chatbot is restricted by the Policy Enforcement Point (PEP). Select a predefined query below to inspect real-time governance:
+              This assistant operates within strict banking policy guardrails. Select a scenario below to test real-time validation:
             </p>
 
             <div className="space-y-2 pt-1">
@@ -175,7 +175,7 @@ export default function ChatAssistant({
               <div>
                 <div className="text-[10px] font-mono text-emerald-400 flex items-center gap-1 font-semibold mb-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Legitimate Banking (Allowed by PEP)</span>
+                  <span>Authorized Inquiries (Permitted)</span>
                 </div>
                 <div className="grid grid-cols-1 gap-1">
                   <button
@@ -201,7 +201,7 @@ export default function ChatAssistant({
               <div>
                 <div className="text-[10px] font-mono text-amber-400 flex items-center gap-1 font-semibold mb-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span>Policy Violation (SOX-404 Denied)</span>
+                  <span>Policy Restricted (Auto-Blocked)</span>
                 </div>
                 <div className="grid grid-cols-1 gap-1">
                   <button

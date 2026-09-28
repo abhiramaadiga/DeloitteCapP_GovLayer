@@ -45,7 +45,7 @@ export default function Navbar({
               </div>
               <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 font-medium">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Zero-Trust Identity & Access Governor • Policy Enforcement Point
+                Enterprise Banking & Autonomous Security Infrastructure
               </p>
             </div>
           </div>
