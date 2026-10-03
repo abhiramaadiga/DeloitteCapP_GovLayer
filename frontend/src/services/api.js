@@ -433,11 +433,21 @@ export async function getSystemStatus() {
     const latency_ms = Math.round(performance.now() - startTime);
     if (res.ok) {
       const data = await res.json();
+      const isPgHealthy = Boolean(data.docker_status?.database_health?.is_postgres && data.docker_status?.database_health?.healthy);
+      const isDockerActive = data.docker_status?.docker_connected === true || isPgHealthy;
+      
+      const dockerStatus = {
+        ...(data.docker_status || {}),
+        docker_connected: isDockerActive,
+        mode: isDockerActive ? 'DOCKER_STACK_ACTIVE' : (data.docker_status?.mode || 'STANDALONE_RESILIENT_FALLBACK')
+      };
+
       return {
         backend_connected: true,
         is_demo_mode: false,
         latency_ms,
-        ...data
+        ...data,
+        docker_status: dockerStatus
       };
     }
   } catch {

@@ -87,6 +87,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-deloitte_secure_pass}
       - POSTGRES_DB=${POSTGRES_DB:-governance_db}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-governor_admin}:${POSTGRES_PASSWORD:-deloitte_secure_pass}@postgres:5432/${POSTGRES_DB:-governance_db}
+    volumes:
+      - ./backend:/app/backend
     restart: unless-stopped
 
   # 4. Instant GUI Database Explorer (pgweb: Zero-login, instant table & row browser)
