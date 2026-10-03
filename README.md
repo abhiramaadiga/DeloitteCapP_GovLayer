@@ -248,8 +248,8 @@ The system was benchmarked under rapid burst conditions (100 sequential requests
 ### 1. Clone & Set Up Python Virtual Environment
 ```bash
 # Clone the repository
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>.git
-cd <YOUR_REPO_NAME>
+git clone https://github.com/abhiramaadiga/DeloitteCapP_GovLayer.git
+cd DeloitteCapP_GovLayer
 
 # Create virtual environment
 python -m venv venv
