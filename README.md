@@ -390,13 +390,12 @@ Developed as part of the **Deloitte Capstone Project — Enterprise BFSI Cyberse
 
 ### Engineering Team & Role Division
 
-| Member / Role | Focus Area | Core Architecture & Key Deliverables |
+| Team Member | Role & Focus Area | Core Architecture & Key Deliverables |
 | :--- | :--- | :--- |
-| **Member 1** | **Backend Security & PEP Gateway Architect** | In-line PEP reverse proxy, dynamic policy engine (<0.05ms cache), and FFIEC Cat-3 killswitch (<0.2ms). |
-| **Member 2** | **Cryptographic Identity & NHI Auth Engineer** | NHI Token Passport Manager, PBKDF2-HMAC-SHA256 password hashing (100k iters), OAuth2, and AES-Fernet encryption. |
-| **Member 3** | **Behavioral ML & Anomaly Detection Specialist** | 100-tree Isolation Forest, 4D behavioral vectors (Entropy, Velocity, Markov, Payload), and drift retrain pipeline. |
-| **Member 4** | **Core Banking Multi-Tenant Isolation Architect** | Multi-tenant ledger (Accounts 401/402/403), isolated FD portfolios, and dedicated assistant fleet sandboxing. |
-| **Member 5** | **Full-Stack SOC Portal & DevOps Lead** | React 19 SPA (Customer Portal & SOC Threat Dashboard), Docker Compose stack, and 145+ automated Pytest suite. |
+| **Abhirama R Adiga** | **Backend Security, PEP Gateway & Multi-Tenant Banking Architect** | In-line PEP reverse proxy, dynamic policy engine (<0.05ms cache), FFIEC Cat-3 killswitch (<0.2ms), multi-tenant ledger (Accounts 401/402/403), isolated FD portfolios, and assistant fleet sandboxing. |
+| **Nitesh Narayan Hegde** | **Cryptographic Identity & NHI Auth Engineer** | NHI Token Passport Manager, PBKDF2-HMAC-SHA256 password hashing (100k iters), OAuth2, and AES-Fernet encryption. |
+| **Prajwal S** | **Behavioral ML & Anomaly Detection Specialist** | 100-tree Isolation Forest, 4D behavioral vectors (Entropy, Velocity, Markov, Payload), and drift retrain pipeline. |
+| **Praneeth G & Abhirama R Adiga** | **Full-Stack SOC Portal & Cloud Infrastructure Leads** | React 19 SPA (Customer Portal & SOC Threat Dashboard), Docker Compose stack, and 145+ automated Pytest suite. |
 
 - **Evaluation Track**: Agentic AI Security, Non-Human Identity Governance & Ultra-Low Latency PEP Reverse Proxies
 - **License**: All rights reserved © 2026 Deloitte Capstone Evaluation Team.
