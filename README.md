@@ -27,7 +27,7 @@
 8. [Multi-Tenant Personas & Credentials](#8-multi-tenant-personas--credentials)
 9. [Core API Reference](#9-core-api-reference)
 10. [Regulatory Compliance & Industry Alignment](#10-regulatory-compliance--industry-alignment)
-11. [Project Attribution & License](#11-project-attribution--license)
+11. [Project Attribution & Engineering Team](#11-project-attribution--engineering-team)
 
 ---
 
@@ -248,8 +248,8 @@ The system was benchmarked under rapid burst conditions (100 sequential requests
 ### 1. Clone & Set Up Python Virtual Environment
 ```bash
 # Clone the repository
-git clone https://github.com/PrajwalShahsi/Deloite_Capstone_Project.git
-cd Deloite_Capstone_Project
+git clone https://github.com/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>.git
+cd <YOUR_REPO_NAME>
 
 # Create virtual environment
 python -m venv venv
@@ -384,10 +384,19 @@ The system seeds distinct multi-tenant test accounts to empirically prove zero c
 
 ---
 
-## 11. Project Attribution & License
+## 11. Project Attribution & Engineering Team
 
 Developed as part of the **Deloitte Capstone Project — Enterprise BFSI Cybersecurity & AI Governance Track**.
 
-- **Lead Author & System Architect**: Prajwal Shashi
+### Engineering Team & Role Division
+
+| Member / Role | Focus Area | Core Architecture & Key Deliverables |
+| :--- | :--- | :--- |
+| **Member 1** | **Backend Security & PEP Gateway Architect** | In-line PEP reverse proxy, dynamic policy engine (<0.05ms cache), and FFIEC Cat-3 killswitch (<0.2ms). |
+| **Member 2** | **Cryptographic Identity & NHI Auth Engineer** | NHI Token Passport Manager, PBKDF2-HMAC-SHA256 password hashing (100k iters), OAuth2, and AES-Fernet encryption. |
+| **Member 3** | **Behavioral ML & Anomaly Detection Specialist** | 100-tree Isolation Forest, 4D behavioral vectors (Entropy, Velocity, Markov, Payload), and drift retrain pipeline. |
+| **Member 4** | **Core Banking Multi-Tenant Isolation Architect** | Multi-tenant ledger (Accounts 401/402/403), isolated FD portfolios, and dedicated assistant fleet sandboxing. |
+| **Member 5** | **Full-Stack SOC Portal & DevOps Lead** | React 19 SPA (Customer Portal & SOC Threat Dashboard), Docker Compose stack, and 145+ automated Pytest suite. |
+
 - **Evaluation Track**: Agentic AI Security, Non-Human Identity Governance & Ultra-Low Latency PEP Reverse Proxies
-- **License**: All rights reserved © 2026 Prajwal Shashi & Deloitte Capstone Evaluation Team.
+- **License**: All rights reserved © 2026 Deloitte Capstone Evaluation Team.
